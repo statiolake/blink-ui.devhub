@@ -97,6 +97,12 @@ function M.label_runs(label, matched, deprecated)
   return runs
 end
 
+-- How far the menu's content is in from its band, across as down: DevHub
+-- insets the band from the popup's line on all four sides alike, so the text
+-- is as far from the line on every side (a row's own height adds about a
+-- pixel down: the label's line is a little taller than the badge).
+M.INSET = 2
+
 --- One row: the kind's badge, the label (lined up with the word typed when
 --- `anchor`), and the right column, truly at the right.
 function M.row(ui, ctx, draw, cols, anchor)
@@ -130,7 +136,7 @@ function M.row(ui, ctx, draw, cols, anchor)
   if #right > 0 then
     table.insert(children, ui.text(right, { size = 'sm' }))
   end
-  return ui.hstack(vim.tbl_extend('force', { gap = 6, align = 'center', pad = { 1, 4 } }, children))
+  return ui.hstack(vim.tbl_extend('force', { gap = 6, align = 'center', pad = { 1, M.INSET } }, children))
 end
 
 --- The selected item's documentation as a node, or nil: its documentation
@@ -164,9 +170,10 @@ function M.doc(ui, item, shown, filetype)
   return parts
 end
 
---- The documentation's pane.
+--- The documentation's pane: its text as far in from the hairline above it
+--- and from the line at the sides and below as the rows' is.
 function M.pane(ui, doc, max_height)
-  return ui.stack(vim.tbl_extend('force', { pane = 'doc', max_height = max_height or 240, gap = 6, pad = { 6, 4 } }, doc or {}))
+  return ui.stack(vim.tbl_extend('force', { pane = 'doc', max_height = max_height or 240, gap = 6, pad = { M.INSET, M.INSET } }, doc or {}))
 end
 
 --- The whole popup: the list (the rows in sight, the selected one banded),
@@ -187,9 +194,13 @@ function M.build(ui, o)
   local children = { list }
   if o.count > #rows then
     local last = o.top + #rows - 1
+    -- in as far as the rows' content
     table.insert(
       children,
-      ui.text(string.format('%d–%d / %d', o.top, last, o.count), { size = 'xs', hl = 'BlinkCmpLabelDescription' })
+      ui.hstack {
+        pad = { 0, M.INSET },
+        ui.text(string.format('%d–%d / %d', o.top, last, o.count), { size = 'xs', hl = 'BlinkCmpLabelDescription' }),
+      }
     )
   end
   -- always there (empty: not drawn), so a new item's documentation is the

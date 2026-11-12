@@ -61,7 +61,10 @@ local node, rel = tree.build(ui, { ctxs = { ctx('a', 'Text'), ctx('b', 'Text') }
   count = 9, selected = 4, doc = tree.doc(ui, { documentation = { kind = 'markdown', value = '**hi**' } }) })
 local list = node.children[1]
 check(rel == 2 and list.selected == 2 and list.band == 'BlinkCmpMenuSelection', 'the band on the selected row in sight')
-check(node.children[2].text == '3–4 / 9', 'where the rows are in the list')
+check(node.children[2].children[1].text == '3–4 / 9', 'where the rows are in the list')
+-- the text as far in across as down: the rows', the count's and the pane's pad
+check(list.children[1].pad[2] == tree.INSET and node.children[2].pad[2] == tree.INSET
+  and node.children[3].pad[1] == tree.INSET and node.children[3].pad[2] == tree.INSET, 'one inset across and down')
 check(node.children[3].pane == 'doc' and node.children[3].children[1].type == 'markdown', 'the documentation in a pane')
 local bare = tree.build(ui, { ctxs = { ctx('a', 'Text') }, draw = atom, cols = cols, top = 1, count = 1 })
 check(#bare.children == 2 and #bare.children[2].children == 0, 'no documentation: an empty pane')
@@ -175,7 +178,7 @@ local updates = sent.updates
 selected = 9
 blink_event 'BlinkCmpListSelect'
 check(sent.updates > updates, 'the rows scrolled: a new tree')
-check(pop.component.children[2].text == '2–11 / 14', 'rows 2–11 in sight')
+check(pop.component.children[2].children[1].text == '2–11 / 14', 'rows 2–11 in sight')
 
 -- closed with blink's menu
 blink_event 'BlinkCmpMenuClose'
