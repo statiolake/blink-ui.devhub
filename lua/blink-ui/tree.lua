@@ -97,6 +97,47 @@ function M.label_runs(label, matched, deprecated)
   return runs
 end
 
+-- What the command line completes (getcmdcompltype()) as a kind: blink's
+-- cmdline source calls every item a Property, so its badge would say the
+-- same on every row. Kinds that the person's kind_icons and BlinkCmpKind*
+-- colours already have; what is not here keeps blink's kind.
+M.CMDLINE_KINDS = {
+  command = 'Keyword', -- an Ex command, as Vim's syntax colours it
+  option = 'Property',
+  ['function'] = 'Function', user_func = 'Function',
+  var = 'Variable', expression = 'Variable', environment = 'Variable',
+  highlight = 'Color', color = 'Color',
+  event = 'Event', augroup = 'Event',
+  help = 'Text',
+  -- names of files: a directory (ending in its separator) a Folder
+  file = 'File', file_in_path = 'File', dir = 'File', dir_in_path = 'File',
+  buffer = 'File', runtime = 'File', shellcmd = 'File',
+}
+
+--- A cmdline source's row with the kind of what is being completed (its
+--- badge letter from kind_icons, its group BlinkCmpKind<kind>); another
+--- source's (path's File and Folder) as blink gives it.
+function M.cmdline_kind(ctx, compltype, icons)
+  local source = ctx.source_id or (ctx.item and ctx.item.source_id)
+  local kind = M.CMDLINE_KINDS[compltype or '']
+  if source ~= 'cmdline' or not kind then
+    return ctx
+  end
+  if kind == 'File' and (ctx.label or ''):match '[/\\]$' then
+    kind = 'Folder'
+  end
+  if kind == ctx.kind then
+    return ctx
+  end
+  local out = {}
+  for k, v in pairs(ctx) do
+    out[k] = v
+  end
+  out.kind, out.kind_hl = kind, 'BlinkCmpKind' .. kind
+  out.kind_icon = icons and icons[kind] or ctx.kind_icon
+  return out
+end
+
 -- How far the menu's content is in from its band, across as down: DevHub
 -- insets the band from the popup's line on all four sides alike, so the text
 -- is as far from the line on every side (a row's own height adds about a

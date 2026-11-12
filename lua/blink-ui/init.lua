@@ -1,5 +1,6 @@
--- blink-ui.devhub: blink.cmp's insert-mode completion menu and the selected
--- item's documentation, drawn by DevHub as one popup at the cursor.
+-- blink-ui.devhub: blink.cmp's completion menu and the selected item's
+-- documentation, drawn by DevHub as one popup: at the cursor in insert
+-- mode, on DevHub's command-line box on the command line.
 --
 -- blink keeps everything but the drawing: sources, matching, sorting,
 -- selection, the preview it inserts, accepting, and the person's keys. Its
@@ -10,7 +11,12 @@
 -- (the kind's badge, the label with its matched letters, the rest at the
 -- right), a band behind the selected row that glides, the documentation as
 -- markdown in a pane under the list that blink's scroll_documentation_*
--- scroll. The command line keeps blink's float.
+-- scroll. On the command line the same popup stands on DevHub's own
+-- command-line box (gui.popup's anchor = 'cmdline'), above it, its words
+-- over the word typed; its rows are the person's cmdline columns with the
+-- kind's badge in front, as in insert mode, the badge saying what the
+-- command line completes (tree.cmdline_kind). A DevHub that cannot put a
+-- popup there leaves blink's float on the command line.
 --
 -- A DevHub extension: it needs DevHub's GUI and devhub.nvim and is loaded
 -- only there. When blink's internals are not what it expects (another
@@ -63,13 +69,21 @@ function M.active()
   return ok and devhub.gui ~= nil and devhub.gui.available() == true
 end
 
--- Insert (or Select) mode: the command line keeps blink's float.
-function M._insert_mode()
+-- Which menu blink shows now: 'insert' (or Select mode), 'cmdline' (when
+-- this DevHub puts popups on its command line), or nil (blink's own).
+function M._mode()
   local mode = vim.api.nvim_get_mode().mode:sub(1, 1)
-  return mode == 'i' or mode == 's'
+  if mode == 'i' or mode == 's' then
+    return 'insert'
+  end
+  if mode == 'c' and vim.fn.getcmdtype() ~= '' then
+    local gui = require('devhub').gui
+    return gui.has_cmdline_popup and gui.has_cmdline_popup() and 'cmdline' or nil
+  end
+  return nil
 end
-local function insert_mode()
-  return M._insert_mode()
+local function menu_mode()
+  return M._mode()
 end
 
 --- Something here or in blink's internals failed: blink's own float from
@@ -115,7 +129,7 @@ end
 
 -- The documentation of src (a list item blink resolved) as nodes, its
 -- detail left out when the right column already shows it.
-local function doc_nodes(items, top, rows, context, src, buf, ctxs)
+local function doc_nodes(items, top, rows, context, src, filetype, ctxs)
   local i
   for j = top, math.min(#items, top + rows - 1) do
     if items[j] == src then
@@ -130,14 +144,15 @@ local function doc_nodes(items, top, rows, context, src, buf, ctxs)
       shown = shown or tree.component(draw, name, ctx)
     end
   end
-  return tree.doc(require('devhub').gui.ui, state.docs[src], shown and vim.trim(shown), vim.bo[buf].filetype)
+  return tree.doc(require('devhub').gui.ui, state.docs[src], shown and vim.trim(shown), filetype)
 end
 
 local function render()
   state.pending = false
   local t0 = vim.uv.hrtime()
   local cmp = blink.cmp()
-  if not M.active() or not cmp or not insert_mode() then
+  local mode = M.active() and menu_mode()
+  if not cmp or not mode then
     return
   end
   local items = cmp.get_items()
@@ -155,8 +170,12 @@ local function render()
   local top = tree.window(state.items == items and state.top or 1, selected, #items, rows, 2)
   local src = doc_source(selected and items[selected], context)
   local buf = vim.api.nvim_get_current_buf()
-  local anchor = { buf = buf, lnum = context.cursor[1], col = context.bounds.start_col - 1 }
-  local key = table.concat({ buf, anchor.lnum, anchor.col }, ':')
+  local cmdline = mode == 'cmdline'
+  local filetype = cmdline and 'vim' or vim.bo[buf].filetype
+  -- The word's start: in the buffer, or in the command line's text.
+  local anchor = cmdline and { cmdline = context.bounds.start_col - 1 }
+    or { buf = buf, lnum = context.cursor[1], col = context.bounds.start_col - 1 }
+  local key = cmdline and 'cmdline:' .. anchor.cmdline or table.concat({ buf, anchor.lnum, anchor.col }, ':')
   if state.popup and (state.anchor ~= key or not state.popup:is_open()) then
     state.popup:close()
     state.popup = nil
@@ -172,7 +191,7 @@ local function render()
       M.stats.selects = M.stats.selects + 1
     end
     if state.doc_src ~= src then
-      local doc = src and doc_nodes(items, top, rows, context, src, buf) or nil
+      local doc = src and doc_nodes(items, top, rows, context, src, filetype) or nil
       state.popup:pane('doc', doc or {})
       state.doc_src, state.has_doc = src, doc ~= nil
       M.stats.panes = M.stats.panes + 1
@@ -184,8 +203,18 @@ local function render()
   local last = math.min(#items, top + rows - 1)
   local ctxs, draw = blink.contexts(context, vim.list_slice(items, top, last))
   local cols = tree.columns(draw, context)
+  if cmdline then
+    -- The person's cmdline columns, with the kind's badge in front as in
+    -- insert mode; the kind what the command line completes.
+    cols.badge = true
+    local compltype = vim.fn.getcmdcompltype()
+    local icons = config.appearance and config.appearance.kind_icons or {}
+    for i, ctx in ipairs(ctxs) do
+      ctxs[i] = tree.cmdline_kind(ctx, compltype, icons)
+    end
+  end
   local ui = require('devhub').gui.ui
-  local doc = src and doc_nodes(items, top, rows, context, src, buf, ctxs) or nil
+  local doc = src and doc_nodes(items, top, rows, context, src, filetype, ctxs) or nil
   local node, rel = tree.build(ui, {
     ctxs = ctxs, draw = draw, cols = cols, top = top, count = #items, selected = selected,
     doc = doc, doc_max_height = M.config.doc_max_height,
@@ -194,8 +223,9 @@ local function render()
     state.popup:update(node)
   else
     local w = width(config)
+    -- (on the command line: above its box, as Neovim's wildmenu)
     state.popup = require('devhub').gui.popup {
-      anchor = anchor, placement = 'below', component = node, close_on = {},
+      anchor = anchor, placement = not cmdline and 'below' or nil, component = node, close_on = {},
       min_width = w, max_width = w,
     }
     state.anchor = key
@@ -247,7 +277,7 @@ function M.setup(opts)
   vim.api.nvim_create_autocmd({ 'WinNew', 'BufWinEnter' }, {
     group = group,
     callback = function()
-      if package.loaded['blink.cmp.completion.windows.menu'] and insert_mode() and M.active() then
+      if package.loaded['blink.cmp.completion.windows.menu'] and M.active() and menu_mode() then
         if blink.ok() then
           blink.hide(true)
         else
@@ -260,7 +290,7 @@ function M.setup(opts)
     group = group,
     pattern = { 'BlinkCmpMenuOpen', 'BlinkCmpShow', 'BlinkCmpListSelect' },
     callback = function()
-      if M.active() and insert_mode() then
+      if M.active() and menu_mode() then
         route()
         M.schedule()
       end
@@ -273,7 +303,8 @@ function M.setup(opts)
       reset()
     end,
   })
-  vim.api.nvim_create_autocmd({ 'InsertLeave', 'CmdlineEnter' }, {
+  -- A new mode, a new menu (DevHub closes a command line's popup itself).
+  vim.api.nvim_create_autocmd({ 'InsertLeave', 'CmdlineEnter', 'CmdlineLeave' }, {
     group = group,
     callback = function()
       reset()

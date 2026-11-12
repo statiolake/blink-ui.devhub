@@ -74,6 +74,23 @@ check(tree.doc(ui, { detail = 'string' }, 'string') == nil, 'a detail the right 
 local d = tree.doc(ui, { detail = '(a) => b', documentation = 'plain' }, 'function', 'typescript')
 check(d and d[1].text == '```typescript\n(a) => b\n```' and d[2].type == 'markdown', 'a long detail as code')
 check(tree.doc(ui, { documentation = { kind = 'plaintext', value = 'x' } })[1].type == 'text', 'plain text as text')
+-- the command line's kinds: what is completed, for blink's cmdline source
+local icons = { Keyword = 'k', Property = 'p', File = 'f', Folder = 'd', Color = 'c' }
+local function cctx(label, source)
+  return { label = label, kind = 'Property', kind_icon = 'p', kind_hl = 'BlinkCmpKindProperty',
+    source_id = source or 'cmdline', item = { label = label } }
+end
+local k = tree.cmdline_kind(cctx 'restart', 'command', icons)
+check(k.kind == 'Keyword' and k.kind_icon == 'k' and k.kind_hl == 'BlinkCmpKindKeyword' and k.label == 'restart',
+  'a command: a keyword')
+check(tree.cmdline_kind(cctx 'foldcolumn', 'option', icons).kind_icon == 'p', 'an option: a property')
+check(tree.cmdline_kind(cctx 'lua/', 'file', icons).kind == 'Folder', 'a directory: a folder')
+check(tree.cmdline_kind(cctx 'init.lua', 'file', icons).kind == 'File', 'a file')
+check(tree.cmdline_kind(cctx 'Normal', 'highlight', icons).kind_icon == 'c', 'a highlight group: a colour')
+local path = cctx('lua/', 'path')
+path.kind = 'Folder'
+check(tree.cmdline_kind(path, 'file', icons) == path, 'another source\'s kind as blink gives it')
+check(tree.cmdline_kind(cctx 'x', 'custom,Foo', icons).kind == 'Property', 'an unknown completion: blink\'s kind')
 
 -- 2. The plugin, over stand-ins.
 local K = { 'Text', 'Method', 'Function' }
@@ -110,7 +127,7 @@ package.loaded['blink.cmp.completion.windows.render.context'] = { get_from_items
   contexts = contexts + #list
   return vim.tbl_map(function(item)
     return { label = item.label, label_detail = '', kind = K[item.kind], kind_icon = K[item.kind]:sub(1, 1),
-      kind_hl = 'BlinkCmpKind' .. K[item.kind], label_matched_indices = {}, item = item }
+      kind_hl = 'BlinkCmpKind' .. K[item.kind], label_matched_indices = {}, item = item, source_id = item.source_id }
   end, list)
 end }
 
@@ -127,10 +144,12 @@ local function fake_popup(opts)
   function h:scroll(by, pane) table.insert(sent.scrolls, { by, pane }) end
   return h
 end
-package.loaded['devhub'] = { gui = { available = function() return true end, ui = ui, popup = fake_popup } }
+package.loaded['devhub'] = { gui = { available = function() return true end, ui = ui, popup = fake_popup,
+  has_cmdline_popup = function() return true end } }
 
 local plugin = require 'blink-ui'
-plugin._insert_mode = function() return true end
+local mode = 'insert'
+plugin._mode = function() return mode end
 plugin.setup {}
 local function blink_event(name)
   vim.api.nvim_exec_autocmds('User', { pattern = name })
@@ -185,6 +204,46 @@ blink_event 'BlinkCmpMenuClose'
 check(not pop.open, 'closed with blink\'s menu')
 blink_docs.scroll_down(1)
 check(scrolled[#scrolled] == 1, 'with no popup, blink scrolls its own')
+
+-- The command line: the same popup on DevHub's box, the person's cmdline
+-- columns with the kind's badge in front.
+local insert_items = items
+items = {}
+for i, label in ipairs { 'restart', 'registers', 'redrawstatus' } do
+  items[i] = { label = label, kind = 1, source_id = 'cmdline' }
+end
+K[1] = 'Property'
+local cmd_cols = { { 'pad', 'label' } }
+package.loaded['blink.cmp.config'].completion.menu.draw = vim.tbl_extend('force', atom, {
+  columns = function() return mode == 'cmdline' and cmd_cols or atom.columns end,
+})
+package.loaded['blink.cmp.config'].appearance = { kind_icons = { Keyword = 'k', Property = 'p' } }
+package.loaded['blink.cmp'].get_context = function() return { cursor = { 1, 4 }, bounds = { start_col = 1 } } end
+local getcmdcompltype = vim.fn.getcmdcompltype
+vim.fn.getcmdcompltype = function() return 'command' end
+mode = 'cmdline'
+selected = nil
+vim.api.nvim_exec_autocmds('CmdlineEnter', {})
+local before_cmd = #sent.popups
+blink_event 'BlinkCmpMenuOpen'
+local cpop = sent.popups[#sent.popups]
+check(#sent.popups == before_cmd + 1, 'one popup for the command line')
+check(cpop ~= pop and cpop.open, 'a popup of its own')
+check(cpop.opts.anchor.cmdline == 0 and cpop.opts.anchor.buf == nil, 'on the command line, where the word starts')
+check(cpop.opts.placement == nil, 'DevHub\'s side for it: above the box')
+local crow = cpop.component.children[1].children[1]
+check(crow.children[1].type == 'badge' and crow.children[1].text == 'k' and crow.children[1].hl == 'BlinkCmpKindKeyword',
+  'the badge in front, saying a command: ' .. vim.inspect(crow.children[1]))
+check(crow.children[2].runs[1].text == 'restart' and #crow.children == 2, 'the label; the pad column says nothing')
+selected = 2
+blink_event 'BlinkCmpListSelect'
+check(sent.selects[#sent.selects] == 2 and #sent.popups == before_cmd + 1, 'a selection: its index')
+vim.api.nvim_exec_autocmds('CmdlineLeave', {})
+check(not cpop.open, 'closed with the command line')
+vim.fn.getcmdcompltype = getcmdcompltype
+items = insert_items
+K[1] = 'Text'
+mode = 'insert'
 
 -- blink's internals moved: blink's float, the person told once
 local notified = {}
