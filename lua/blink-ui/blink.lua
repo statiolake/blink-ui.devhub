@@ -8,13 +8,44 @@
 --     context blink gives its own components (label, matched indices, kind,
 --     kind_icon, kind_hl, …);
 --   blink.cmp.sources.lib  resolve: the item with its documentation (cached
---     by blink, so the language server is not asked twice).
+--     by blink, so the language server is not asked twice);
+--   blink.cmp.completion.list  select: an item selected by its index, as
+--     select_next/select_prev select (a row clicked).
 
 local M = {}
 
 local function mod(name)
   local ok, m = pcall(require, name)
   return ok and type(m) == 'table' and m or nil
+end
+
+--- Select the item at `index` (in all), as blink's select_next/prev would:
+--- its own list.select, else counted moves from the selection there is.
+function M.select(index)
+  local list = mod 'blink.cmp.completion.list'
+  if list and type(list.select) == 'function' then
+    vim.schedule(function()
+      list.select(index)
+    end)
+    return true
+  end
+  local cmp = M.cmp()
+  if not cmp then
+    return false
+  end
+  local cur = cmp.get_selected_item_idx() or 0
+  if index > cur then
+    return cmp.select_next { count = index - cur } == true
+  elseif index < cur then
+    return cmp.select_prev { count = cur - index } == true
+  end
+  return true
+end
+
+--- Accept the item at `index` (in all): blink's own accept.
+function M.accept(index)
+  local cmp = M.cmp()
+  return cmp ~= nil and type(cmp.accept) == 'function' and cmp.accept { index = index } == true
 end
 
 function M.cmp()

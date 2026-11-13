@@ -11,7 +11,8 @@
 -- (the kind's badge, the label with its matched letters, the rest at the
 -- right), a band behind the selected row that glides, the documentation as
 -- markdown in a pane under the list that blink's scroll_documentation_*
--- scroll. On the command line the same popup stands on DevHub's own
+-- scroll. A row clicked is selected, a row double-clicked accepted. On
+-- the command line the same popup stands on DevHub's own
 -- command-line box (gui.popup's anchor = 'cmdline'), above it, its words
 -- over the word typed; its rows are the person's cmdline columns with the
 -- kind's badge in front, as in insert mode, the badge saying what the
@@ -217,7 +218,7 @@ local function render()
   local doc = src and doc_nodes(items, top, rows, context, src, filetype, ctxs) or nil
   local node, rel = tree.build(ui, {
     ctxs = ctxs, draw = draw, cols = cols, top = top, count = #items, selected = selected,
-    doc = doc, doc_max_height = M.config.doc_max_height,
+    doc = doc, doc_max_height = M.config.doc_max_height, on_click = M._click,
   })
   if state.popup then
     state.popup:update(node)
@@ -237,6 +238,21 @@ local function render()
   state.doc_src, state.has_doc = src, doc ~= nil
   local ms = (vim.uv.hrtime() - t0) / 1e6
   M.stats.trees, M.stats.ms, M.stats.max_ms = M.stats.trees + 1, M.stats.ms + ms, math.max(M.stats.max_ms, ms)
+end
+
+--- A row clicked (`index` in all items): a click selects it, as the keys
+--- do; a double click accepts it. Both through blink's own API, so the
+--- keys and everything built on blink's selection are as they were.
+function M._click(index, clicks)
+  local cmp = blink.cmp()
+  if not cmp or not cmp.is_menu_visible() then
+    return
+  end
+  if (clicks or 1) >= 2 then
+    blink.accept(index)
+  elseif cmp.get_selected_item_idx() ~= index then
+    blink.select(index)
+  end
 end
 
 --- Draw at the end of this tick (blink's events of one key come together).

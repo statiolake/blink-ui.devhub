@@ -145,8 +145,9 @@ end
 M.INSET = 2
 
 --- One row: the kind's badge, the label (lined up with the word typed when
---- `anchor`), and the right column, truly at the right.
-function M.row(ui, ctx, draw, cols, anchor)
+--- `anchor`), and the right column, truly at the right. on_click(clicks):
+--- the row clicked (DevHub lights it under the pointer).
+function M.row(ui, ctx, draw, cols, anchor, on_click)
   local children = {}
   if cols.badge then
     local icon = component(draw, 'kind_icon', ctx) or ctx.kind_icon or ''
@@ -177,7 +178,14 @@ function M.row(ui, ctx, draw, cols, anchor)
   if #right > 0 then
     table.insert(children, ui.text(right, { size = 'sm' }))
   end
-  return ui.hstack(vim.tbl_extend('force', { gap = 6, align = 'center', pad = { 1, M.INSET } }, children))
+  return ui.hstack(vim.tbl_extend('force', {
+    gap = 6,
+    align = 'center',
+    pad = { 1, M.INSET },
+    on_click = on_click and function(_, clicks)
+      on_click(clicks or 1)
+    end or nil,
+  }, children))
 end
 
 --- The selected item's documentation as a node, or nil: its documentation
@@ -220,11 +228,15 @@ end
 --- The whole popup: the list (the rows in sight, the selected one banded),
 --- where it is in a longer list, and the documentation in a pane under it.
 ---   o = { ctxs, draw, cols, top, count, selected (in all), doc (nodes),
----         doc_max_height (px) }
+---         doc_max_height (px), on_click? fn(index in all, clicks) }
 function M.build(ui, o)
   local rows = {}
   for i, ctx in ipairs(o.ctxs) do
-    table.insert(rows, M.row(ui, ctx, o.draw, o.cols, i == 1))
+    local index = o.top + i - 1
+    local click = o.on_click and function(clicks)
+      o.on_click(index, clicks)
+    end or nil
+    table.insert(rows, M.row(ui, ctx, o.draw, o.cols, i == 1, click))
   end
   local rel = o.selected and o.selected - o.top + 1 or 0
   if rel < 1 or rel > #rows then

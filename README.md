@@ -25,11 +25,19 @@ windows still open — hidden (`hide = true`) as they open, never drawn.
 `scroll_documentation_*` scroll the popup's documentation. Your
 `cmdline.keymap` works on the command line as ever.
 
+The mouse, as on DevHub's other lists: a row is lit under the pointer, a
+click selects it and a double click accepts it, in Insert mode and on the
+command line, through blink's own selection and `accept { index }` — what a
+click selects is what `select_next` would have, preview and all. (A double
+click needs a DevHub that tells a popup's clicks apart; an older one selects
+twice.)
+
 blink's internals this reads, each behind `pcall`: its windows' buffers (to
 hide them) and the documentation window's `scroll_up`/`scroll_down`,
 `render.context.get_from_items` (the context blink gives its own draw
-components: matched letters, kind icon and group) and `sources.lib.resolve`
-(the documentation, as blink caches it). When they are not what it expects
+components: matched letters, kind icon and group), `sources.lib.resolve`
+(the documentation, as blink caches it) and `completion.list.select` (a
+row clicked; else counted `select_next`/`select_prev`). When they are not what it expects
 (another blink), or anything fails, blink draws its own float and you are
 told once.
 

@@ -70,6 +70,18 @@ local bare = tree.build(ui, { ctxs = { ctx('a', 'Text') }, draw = atom, cols = c
 check(#bare.children == 2 and #bare.children[2].children == 0, 'no documentation: an empty pane')
 check(list.children[2].children[2].anchor == nil, 'one anchored label')
 check(ui.validate(node), 'the tree validates')
+-- rows clicked: their index in all items, and how many clicks
+local clicked = {}
+local clickable = tree.build(ui, { ctxs = { ctx('a', 'Text'), ctx('b', 'Text') }, draw = atom, cols = cols, top = 3,
+  count = 9, on_click = function(index, clicks) table.insert(clicked, { index, clicks }) end })
+local crows = clickable.children[1].children
+check(type(crows[1].on_click) == 'function' and type(crows[2].on_click) == 'function', 'every row clickable')
+crows[2].on_click(nil, 1)
+crows[1].on_click(nil, 2)
+crows[1].on_click()
+check(vim.deep_equal(clicked, { { 4, 1 }, { 3, 2 }, { 3, 1 } }), 'a row\'s index in all, its clicks: ' .. vim.inspect(clicked))
+check(ui.validate(clickable), 'a clickable tree validates')
+check(list.children[1].on_click == nil, 'no on_click asked: rows not clickable')
 check(tree.doc(ui, { detail = 'string' }, 'string') == nil, 'a detail the right column shows is not said twice')
 local d = tree.doc(ui, { detail = '(a) => b', documentation = 'plain' }, 'function', 'typescript')
 check(d and d[1].text == '```typescript\n(a) => b\n```' and d[2].type == 'markdown', 'a long detail as code')
@@ -107,12 +119,20 @@ local blink_menu = { win = { buf = menu_buf } }
 local blink_docs = { win = { buf = docs_buf } }
 function blink_docs.scroll_up(n) table.insert(scrolled, -n) end
 function blink_docs.scroll_down(n) table.insert(scrolled, n) end
+local accepted = {}
 package.loaded['blink.cmp'] = {
   get_items = function() return items end,
   get_context = function() return { cursor = { 1, 3 }, bounds = { start_col = 1 } } end,
   get_selected_item_idx = function() return selected end,
   is_menu_visible = function() return true end,
+  accept = function(opts) table.insert(accepted, opts.index); return true end,
 }
+local selects_asked = {}
+package.loaded['blink.cmp.completion.list'] = { select = function(index)
+  table.insert(selects_asked, index)
+  selected = index
+  vim.api.nvim_exec_autocmds('User', { pattern = 'BlinkCmpListSelect' })
+end }
 package.loaded['blink.cmp.config'] = { completion = { menu = { max_height = 10, min_width = 36, draw = atom },
   documentation = { window = { max_width = 36 } } } }
 package.loaded['blink.cmp.completion.windows.menu'] = blink_menu
@@ -199,6 +219,19 @@ blink_event 'BlinkCmpListSelect'
 check(sent.updates > updates, 'the rows scrolled: a new tree')
 check(pop.component.children[2].children[1].text == '2–11 / 14', 'rows 2–11 in sight')
 
+-- a row clicked: selected by blink's own select; double-clicked: accepted
+local keys_before = #sent.selects
+pop.component.children[1].children[3].on_click(nil, 1)
+flush()
+check(vim.deep_equal(selects_asked, { 4 }), 'the third row in sight is item 4: ' .. vim.inspect(selects_asked))
+check(sent.selects[#sent.selects] == 3 and #sent.selects == keys_before + 1, 'the band moved to it, by its index')
+pop.component.children[1].children[3].on_click(nil, 1)
+flush()
+check(#selects_asked == 1, 'a click on the selected row asks nothing')
+pop.component.children[1].children[5].on_click(nil, 2)
+flush()
+check(vim.deep_equal(accepted, { 6 }) and #selects_asked == 1, 'a double click accepts it: ' .. vim.inspect(accepted))
+
 -- closed with blink's menu
 blink_event 'BlinkCmpMenuClose'
 check(not pop.open, 'closed with blink\'s menu')
@@ -238,6 +271,9 @@ check(crow.children[2].runs[1].text == 'restart' and #crow.children == 2, 'the l
 selected = 2
 blink_event 'BlinkCmpListSelect'
 check(sent.selects[#sent.selects] == 2 and #sent.popups == before_cmd + 1, 'a selection: its index')
+cpop.component.children[1].children[3].on_click(nil, 1)
+flush()
+check(selects_asked[#selects_asked] == 3, 'on the command line too, a click selects')
 vim.api.nvim_exec_autocmds('CmdlineLeave', {})
 check(not cpop.open, 'closed with the command line')
 vim.fn.getcmdcompltype = getcmdcompltype
